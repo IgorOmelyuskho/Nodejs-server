@@ -1,3 +1,5 @@
 .vs/ProjectSettings.json
 .vs/slnx.sqlite
 node_modules
+files
+uploads

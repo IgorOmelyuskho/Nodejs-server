@@ -1,9 +1,12 @@
 var express = require('express');
 var router = express.Router();
-var connection = require('../SQLConnection');
+var connection = require('../DBConnection').connection;
 var jwt = require('jsonwebtoken');
 var createErrorObj = require('../utils/createErrorObject');
 var decodeTokenModule = require('../utils/decodeToken');
+const bcrypt = require('bcrypt-nodejs');
+const salt = bcrypt.genSaltSync(10);
+
 
 function insertToInvestors(req) {
   const email = req.body.email;
@@ -19,10 +22,11 @@ function userWithSameEmailExist(req) {
 }
 
 function insertInvestorToUsers(req, userId) {
-  const name = req.body.name;
+  const fullName = req.body.fullName;
   const email = req.body.email;
   const password = req.body.password;
-  const query = `INSERT INTO new_schema.users VALUES ("${email}", "${password}", "${name}", "Investor", "${userId}", null);`;
+  const hash = bcrypt.hashSync(password, salt);
+  const query = `INSERT INTO new_schema.users VALUES ("${email}", "${hash}", "${fullName}", "Investor", "${userId}", null);`;
   return connection.query(query); // connection.query now return Promise
 }
 
@@ -77,8 +81,9 @@ function getVendorByToken() {
 }
 
 async function insertVendor(req) {
-  const name = req.body.name;
+  const fullName = req.body.fullName;
   const password = req.body.password;
+  const hash = bcrypt.hashSync(password, salt);
   const email = req.body.email;
   const vendorData = req.body.vendorData;
 
@@ -90,7 +95,7 @@ async function insertVendor(req) {
   const query1 = `INSERT INTO new_schema.vendors VALUES (null, "${email}", "${vendorData}");`;
   const res1 = await connection.query(query1); // connection.query now return Promise
 
-  const query2 = `INSERT INTO new_schema.users VALUES ("${email}", "${password}", "${name}", "Vendor", "${res1.insertId}", null);`;
+  const query2 = `INSERT INTO new_schema.users VALUES ("${email}", "${hash}", "${fullName}", "Vendor", "${res1.insertId}", null);`;
   await connection.query(query2); // connection.query now return Promise
 
   return null;
@@ -99,23 +104,27 @@ async function insertVendor(req) {
 router.post("/api/Auth/authenticate", async (req, res, next) => {
   try {
     const email = req.body.email;
-    const password = req.body.password;
-    const query1 = `SELECT email, role, password FROM new_schema.users WHERE email = "${email}";`;
+    const query1 = `SELECT email, role, password, userId FROM new_schema.users WHERE email = "${email}";`;
     const res1 = await connection.query(query1);
 
     if (res1.length === 0)
       throw `User with email ${email} not exist`;
-    if (password !== res1[0].password)
+
+    const hash = res1[0].password;
+    const passwordIsCorrect = bcrypt.compareSync(req.body.password, hash);
+    if (passwordIsCorrect === false)
       throw "Not correct email or password";
 
     const token = jwt.sign({
       exp: Math.floor(Date.now() / 1000) + (60 * 60), // 1h
       role: res1[0].role,
-      email
+      email,
+      userId: res1[0].userId
     }, decodeTokenModule.jwtSecret);
 
     res.json({ token })
   } catch (err) {
+    console.log(err);
     res.status(400).send(createErrorObj(0, err.toString()));
   }
 });
